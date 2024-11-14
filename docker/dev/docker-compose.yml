@@ -1,0 +1,79 @@
+name: daily-news-summarizer
+
+services:
+  redis:
+    image: redis
+    container_name: daily-news-summarizer-redis
+    restart: unless-stopped
+    volumes:
+      - redis-vol:/redis
+    networks:
+      - net
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: daily-news-summarizer-rabbitmq
+    volumes:
+      - rabbitmq-vol:/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - net
+
+  worker:
+    build:
+      context: ../../
+      dockerfile: docker/DockerfileWorker
+    container_name: daily-news-summarizer-worker
+    env_file:
+      - ../../.env
+    volumes:
+      - raw-data-vol:/data
+    command: >
+      bash -c "mkdir -p /app/logs &&
+      celery -A app.services.aicelery.router worker -Q ai_celery --loglevel=info --pool=gevent --concurrency=5 -E --logfile=logs/celery.log"
+    depends_on:
+      - redis
+      - rabbitmq
+    networks:
+      - net
+
+  cron-app:
+    build:
+      context: ../../
+      dockerfile: docker/DockerfileCronJob
+    container_name: daily-news-summarizer-cron-job
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    depends_on:
+      - redis
+      - rabbitmq
+      - worker
+    networks:
+      - net
+
+  app:
+    container_name: daily-news-summarizer-app
+    env_file:
+      - ../../.env
+    build:
+      context: ../../
+      dockerfile: docker/Dockerfile
+    command: /bin/sh -c "while true; do echo 'y' | uvicorn app.main:app --host 0.0.0.0 --port 5000 ; done"
+    ports:
+      - "5000:5000"
+    networks:
+      - net
+
+volumes:
+  rabbitmq-vol:
+    name: daily-news-summarizer-rabbitmq-vol
+  redis-vol:
+    name: daily-news-summarizer-redis-vol
+  raw-data-vol:
+    name: daily-news-summarizer-raw-data-vol
+networks:
+  net:
+    name: daily-news-summarizer-net

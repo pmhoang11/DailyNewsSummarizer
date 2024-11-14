@@ -1,0 +1,4 @@
+FROM python:3.10
+
+COPY requirements-llm.txt .
+RUN pip install -r requirements-llm.txt
